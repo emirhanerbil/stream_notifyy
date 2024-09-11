@@ -14,3 +14,7 @@ class UserInDB(BaseModel):
     email: EmailStr
     username: str
     hashed_password: str
+
+class Streamers(BaseModel):
+    username: str
+    streamers : list

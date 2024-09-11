@@ -4,8 +4,8 @@ from fastapi.security import OAuth2PasswordBearer
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from models import UserRegister, UserLogin, UserInDB
-from utils.security import create_access_token, hash_password, verify_password, verify_token
+from models import *
+from utils.security import *
 from utils.db import *
 from utils.logging import setup_logger
 from utils.validators import *
@@ -26,6 +26,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 #db bağlanma
 users_collection = get_users_collection()
+streamers_collection = get_streamers_collection()
 
 # Token doğrulama işlevi için OAuth2PasswordBearer
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -49,7 +50,6 @@ async def register(request: Request, username: str = Form(...), password: str = 
     if username_existed:
         return templates.TemplateResponse("register.html", {"request": request,"error" : "Bu kullanıcı adı sistemimizde kayıtlıdır."})
     
-    
     # Kullanıcı maili mevcut olup olmadığını kontrol et
     email_existed = await is_email_existed(users_collection,email)
     if email_existed:
@@ -60,7 +60,6 @@ async def register(request: Request, username: str = Form(...), password: str = 
     if not password_valid:
         return templates.TemplateResponse("register.html", {"request": request,"error" : "Şifreniz 8-20 karakter uzunluğunda olmalıdır."})
     
-
     # Şifreyi hashleyip kullanıcıyı kaydetme
     hashed_password = hash_password(password)
     user_in_db = UserInDB(
@@ -69,6 +68,13 @@ async def register(request: Request, username: str = Form(...), password: str = 
         hashed_password=hashed_password
     )
     await users_collection.insert_one(user_in_db.dict())
+    
+    streamer = Streamers(
+        username=username,
+        streamers = []
+    )
+    await streamers_collection.insert_one(streamer.dict())
+    
     
     # Kayıt olma başarılıysa token oluştur
     access_token = create_access_token(data={"sub": username})
@@ -132,11 +138,35 @@ def get_current_user(request: Request):
 async def get_dashboard(request: Request):
     try:
         user = get_current_user(request)
-        print(user)
     except HTTPException:
         return RedirectResponse(url="/login")
     
-    return templates.TemplateResponse("dashboard.html", {"request": request, "username": user})
+    error = request.query_params.get("error")
+    success = request.query_params.get("success")
+    
+    streamer_list = await get_streamers(user,streamers_collection)
+    return templates.TemplateResponse("dashboard.html", {"request": request, "username": user,"streamers":streamer_list,"error":error,"success" : success})
+
+
+
+@app.post("/delete_streamer/{streamer_name}", response_class=RedirectResponse)
+async def delete_streamers(streamer_name: str, request: Request):
+    user = get_current_user(request)  # Kullanıcı doğrulama
+    # Streamer'ı veritabanından sil
+    removed_streamer = await remove_streamer(user,streamers_collection,streamer_name)
+    return RedirectResponse(url="/dashboard", status_code=303)
+
+    
+@app.post("/add_streamer",response_class=RedirectResponse)
+async def add_streamers(streamer_name: str = Form(...), request: Request = Request):
+    user = get_current_user(request)  # Kullanıcı doğrulama
+    is_streamer_exist = await add_streamer(username=user,streamer_collection=streamers_collection,streamer_name=streamer_name)
+    if is_streamer_exist:
+        print(is_streamer_exist)
+        return RedirectResponse(url="/dashboard?error=streamer_exists", status_code=303)
+    
+    return RedirectResponse(url="/dashboard?success=streamer_added", status_code=303)
+    
 
 
 # Logout işlemi
