@@ -36,10 +36,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 async def index(request: Request):
     return {"msg" : "This page is home page."}
 
+
 # Kayıt olma sayfasını yükler
-@app.get("/register", response_class=HTMLResponse)
-async def get_register_page(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
+@app.get("/login-test", response_class=HTMLResponse)
+async def login_test(request: Request):
+    return templates.TemplateResponse("login_test.html", {"request": request})
 
 
 # Kayıt olma işlemi
@@ -48,17 +49,17 @@ async def register(request: Request, username: str = Form(...), password: str = 
     # Kullanıcı adı olup olmadığını kontrol et
     username_existed = await is_username_existed(users_collection,username)
     if username_existed:
-        return templates.TemplateResponse("register.html", {"request": request,"error" : "Bu kullanıcı adı sistemimizde kayıtlıdır."})
+        return templates.TemplateResponse("login_register.html", {"request": request,"error" : "Bu kullanıcı adı sistemimizde kayıtlıdır.","open_signup": True})
     
     # Kullanıcı maili mevcut olup olmadığını kontrol et
     email_existed = await is_email_existed(users_collection,email)
-    if email_existed:
-        return templates.TemplateResponse("register.html", {"request": request,"error" : "Bu mail sistemimizde kayıtlıdır."})
+    if  email_existed:
+        return templates.TemplateResponse("login_register.html", {"request": request,"error" : "Bu mail sistemimizde kayıtlıdır.","open_signup": True})
     
     #şifre uzunluk doğrulama
     password_valid = is_password_valid(password)
     if not password_valid:
-        return templates.TemplateResponse("register.html", {"request": request,"error" : "Şifreniz 8-20 karakter uzunluğunda olmalıdır."})
+        return templates.TemplateResponse("login_register.html", {"request": request,"error" : "Şifreniz 8-20 karakter uzunluğunda olmalıdır.","open_signup": True})
     
     # Şifreyi hashleyip kullanıcıyı kaydetme
     hashed_password = hash_password(password)
@@ -94,7 +95,7 @@ async def register(request: Request, username: str = Form(...), password: str = 
 # Giriş yapma sayfasını yükler
 @app.get("/login", response_class=HTMLResponse)
 async def get_login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("login_register.html", {"request": request})
 
 
 # Giriş yapma işlemi ve token oluşturma
@@ -104,7 +105,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
 
     db_user = await users_collection.find_one({"username": username})
     if not db_user or not verify_password(password, db_user['hashed_password']):
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Incorrect username or password"})
+        return templates.TemplateResponse("login_register.html", {"request": request, "error": "Incorrect username or password"})
 
     # Giriş başarılıysa token oluştur
     access_token = create_access_token(data={"sub": username})
@@ -189,6 +190,8 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return templates.TemplateResponse("401_error.html", {"request": request}, status_code=401)
     elif exc.status_code == 404:
         return templates.TemplateResponse("404_error.html", {"request": request}, status_code=404)
+    elif exc.status_code == 405:
+        return templates.TemplateResponse("404_error.html", {"request": request}, status_code=405)
     elif exc.status_code == 500:
         return templates.TemplateResponse("500_error.html", {"request": request}, status_code=500)
     

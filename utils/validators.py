@@ -15,7 +15,8 @@ async def is_username_existed(users_collection,username):
     return False
 
 async def is_email_existed(users_collection,email):
-    existing_email = await users_collection.find_one({"mail": email})
+    print(email)
+    existing_email = await users_collection.find_one({"email": email})
     if existing_email:
         return True
     return False
