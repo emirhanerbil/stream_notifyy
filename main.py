@@ -37,12 +37,6 @@ async def index(request: Request):
     return {"msg" : "This page is home page."}
 
 
-# Kayıt olma sayfasını yükler
-@app.get("/login-test", response_class=HTMLResponse)
-async def login_test(request: Request):
-    return templates.TemplateResponse("login_test.html", {"request": request})
-
-
 # Kayıt olma işlemi
 @app.post("/register")
 async def register(request: Request, username: str = Form(...), password: str = Form(...),email: str = Form(...)):
