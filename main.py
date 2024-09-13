@@ -16,6 +16,10 @@ from utils.helpers import get_current_time, get_current_user, send_email_verific
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
+
+load_dotenv()
+SECRET_KEY = os.environ.get("SECRET_KEY")
+
 # Logger'ı ayarlıyoruz
 logger = setup_logger()
 
@@ -24,7 +28,7 @@ app = FastAPI()
 # Jinja2 template dizinini belirliyoruz
 templates = Jinja2Templates(directory="templates")
 # SessionMiddleware'i ekleyin
-app.add_middleware(SessionMiddleware, secret_key="your_secret_key")
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
 # Statik dosyaları (CSS, JS) servis etmek için static dizini tanımlıyoruz
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -99,7 +103,7 @@ async def register(request: Request, email: str = Form(...), username: str = For
     try:
         send_email_verification_code(email, verification_code)
     except Exception as e:
-        return templates.TemplateResponse("register.html", {"request": request, "error": "Email could not be sent."})
+        return templates.TemplateResponse("login_register.html", {"request": request, "error": "Email could not be sent."})
 
     # Kod ve kullanıcı bilgilerini session'da sakla
     request.session['verification_code'] = verification_code
@@ -113,6 +117,8 @@ async def register(request: Request, email: str = Form(...), username: str = For
 
 @app.get("/verify", response_class=HTMLResponse)
 async def verify_code_page(request: Request):
+    if 'verification_code' not in request.session:
+        return templates.TemplateResponse("login_register.html", {"request": request,"open_signup": True})
     return templates.TemplateResponse("verify.html", {"request": request})
 
 # Doğrulama kodunu kontrol eden endpoint
@@ -157,8 +163,8 @@ async def verify_code(request: Request, verification_code: str = Form(...)):
         logger.info(f"New user registered: {username} at {get_current_time()}")
         return response
         
-
-    return templates.TemplateResponse("login_register.html", {"request": request, "error": "Invalid verification code."})
+    request.session.clear()
+    return templates.TemplateResponse("login_register.html", {"request": request, "error": "Invalid verification code.","open_signup": True})
 
 
 
