@@ -117,54 +117,66 @@ async def register(request: Request, email: str = Form(...), username: str = For
 
 @app.get("/verify", response_class=HTMLResponse)
 async def verify_code_page(request: Request):
-    if 'verification_code' not in request.session:
-        return templates.TemplateResponse("login_register.html", {"request": request,"open_signup": True})
-    return templates.TemplateResponse("verify.html", {"request": request})
+    if 'verification_code' in request.session:
+        return templates.TemplateResponse("verify.html", {"request": request,"isPasswordChange": "false"})
+    
+    if 'password_verification_code' in request.session:
+        return templates.TemplateResponse("verify.html", {"request": request,"isPasswordChange": "true"})
+    
+    return templates.TemplateResponse("login_register.html", {"request": request,"open_signup": True})
 
 # Doğrulama kodunu kontrol eden endpoint
 @app.post("/verify", response_class=HTMLResponse)
 async def verify_code(request: Request, verification_code: str = Form(...)):
     # Session'dan saklanan kodu al
     stored_code = request.session.get('verification_code')
+    if stored_code != None:
+        stored_code = request.session.get('verification_code')
+        # Girilen kod ile saklanan kodu karşılaştır
+        if stored_code and str(stored_code) == verification_code:
+            # Kayıt bilgilerini session'dan al
+            email = request.session.get('email')
+            username = request.session.get('username')
+            hashed_password = request.session.get('password')
 
-    # Girilen kod ile saklanan kodu karşılaştır
-    if stored_code and str(stored_code) == verification_code:
-        # Kayıt bilgilerini session'dan al
-        email = request.session.get('email')
-        username = request.session.get('username')
-        hashed_password = request.session.get('password')
+            user_in_db = UserInDB(
+            email=email,
+            username=username,
+            hashed_password=hashed_password)
+            await users_collection.insert_one(user_in_db.dict())
 
-        user_in_db = UserInDB(
-        email=email,
-        username=username,
-        hashed_password=hashed_password)
-        await users_collection.insert_one(user_in_db.dict())
-
-        # Session'daki bilgileri temizle
+            # Session'daki bilgileri temizle
+            request.session.clear()
+            
+            streamer = Streamers(
+            username=username,
+            streamers = [])
+            await streamers_collection.insert_one(streamer.dict())
+        
+        
+            # Kayıt olma başarılıysa token oluştur
+            access_token = create_access_token(data={"sub": username})
+            
+            response = RedirectResponse(url="/dashboard", status_code=303)
+            response.set_cookie(
+                key="access_token", 
+                value=f"Bearer {access_token}", 
+                httponly=True, 
+                max_age=18000 + 10800  # 300 dakika + 3 saat(utc'den dolayı) (saniye cinsinden)
+            )
+            
+            logger.info(f"New user registered: {username} at {get_current_time()}")
+            return response
+            
         request.session.clear()
-        
-        streamer = Streamers(
-        username=username,
-        streamers = [])
-        await streamers_collection.insert_one(streamer.dict())
+        return templates.TemplateResponse("login_register.html", {"request": request, "error": "Invalid verification code.","open_signup": True})
     
-    
-        # Kayıt olma başarılıysa token oluştur
-        access_token = create_access_token(data={"sub": username})
-        
-        response = RedirectResponse(url="/dashboard", status_code=303)
-        response.set_cookie(
-            key="access_token", 
-            value=f"Bearer {access_token}", 
-            httponly=True, 
-            max_age=18000 + 10800  # 300 dakika + 3 saat(utc'den dolayı) (saniye cinsinden)
-        )
-        
-        logger.info(f"New user registered: {username} at {get_current_time()}")
-        return response
-        
-    request.session.clear()
-    return templates.TemplateResponse("login_register.html", {"request": request, "error": "Invalid verification code.","open_signup": True})
+    else:
+        password_verification_code = request.session.get("password_verification_code")
+        if password_verification_code and str(password_verification_code) == verification_code:
+            return RedirectResponse(url="/reset-password-confirmed", status_code=303)
+        else:
+            return templates.TemplateResponse("verify.html", {"request": request, "error": "Invalid verification code."})
 
 
 
@@ -197,12 +209,58 @@ async def add_streamers(streamer_name: str = Form(...), request: Request = Reque
     user = get_current_user(request)  # Kullanıcı doğrulama
     is_streamer_exist = await add_streamer(username=user,streamer_collection=streamers_collection,streamer_name=streamer_name)
     if is_streamer_exist:
-        print(is_streamer_exist)
         return RedirectResponse(url="/dashboard?error=streamer_exists", status_code=303)
     
     return RedirectResponse(url="/dashboard?success=streamer_added", status_code=303)
     
+@app.get("/reset-password", response_class=HTMLResponse)
+async def reset_password_page(request: Request):
+    return templates.TemplateResponse("reset_password.html",{"request": request})
 
+@app.post("/reset-password")
+async def reset_password(request:Request, email : str = Form(...)):
+    email_existed = await is_email_existed(users_collection,email)
+    if not email_existed:
+        return templates.TemplateResponse("reset_password.html",{"request": request,"error":"Bu email sistemimizde kayıtlı değildir."})
+    
+        # 4 haneli doğrulama kodu oluştur
+    verification_code = randint(1000, 9999)
+
+    # Doğrulama kodunu e-posta ile gönder (SMTP ayarlarını kendi yapılandırmanıza göre değiştirin)
+    try:
+        send_email_verification_code(email, verification_code)
+    except Exception as e:
+        return templates.TemplateResponse("login_register.html", {"request": request, "error": "Email could not be sent."})
+
+    # Kod ve kullanıcı bilgilerini session'da sakla
+    request.session['password_verification_code'] = verification_code
+    request.session['email'] = email
+    
+    # Doğrulama kodu sayfasına yönlendir
+    return RedirectResponse(url="/verify", status_code=303)
+    
+@app.get("/reset-password-confirmed", response_class=HTMLResponse)
+async def reset_password_confirmed(request: Request):
+    if "password_verification_code" not in request.session:
+        return RedirectResponse(url="/login", status_code=303)
+    
+    return templates.TemplateResponse("reset_password_confirmed.html",{"request": request})
+
+@app.post("/reset-password-confirmed", response_class=HTMLResponse)
+async def reset_password_confirmed(request: Request,password:str=Form(...),confirm_password:str = Form(...)):
+    if "password_verification_code" not in request.session:
+        return templates.TemplateResponse("login_register.html", {"request": request,"open_signup": False})
+    email = request.session.get("email")
+    if password == confirm_password:
+        hashed_password = hash_password(password)
+        await users_collection.update_one({"email": email}, {"$set": {"hashed_password": hashed_password}})
+        request.session.clear()
+        return templates.TemplateResponse("login_register.html", {"request": request,"succes": "Şifreniz değişmiştir"})
+       
+    else:
+        return templates.TemplateResponse("reset_password_confirmed.html", {"request": request,"error": "Şifreler Uyuşmuyor"})
+    
+    
 
 # Logout işlemi
 @app.post("/logout")

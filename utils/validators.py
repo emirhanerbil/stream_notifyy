@@ -1,7 +1,3 @@
-import re
-from fastapi import HTTPException
-
-
 def is_password_valid(password: str):
     if len(password) < 8 or len(password) > 20:
         return False
@@ -15,7 +11,6 @@ async def is_username_existed(users_collection,username):
     return False
 
 async def is_email_existed(users_collection,email):
-    print(email)
     existing_email = await users_collection.find_one({"email": email})
     if existing_email:
         return True
