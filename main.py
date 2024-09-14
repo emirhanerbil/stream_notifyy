@@ -127,7 +127,8 @@ async def verify_code_page(request: Request):
 
 # Doğrulama kodunu kontrol eden endpoint
 @app.post("/verify", response_class=HTMLResponse)
-async def verify_code(request: Request, verification_code: str = Form(...)):
+async def verify_code(request: Request,digit_1: str = Form(...),digit_2: str = Form(...),digit_3: str = Form(...),digit_4: str = Form(...)):
+    verification_code = digit_1+digit_2+digit_3+digit_4
     # Session'dan saklanan kodu al
     stored_code = request.session.get('verification_code')
     if stored_code != None:
@@ -166,10 +167,11 @@ async def verify_code(request: Request, verification_code: str = Form(...)):
             )
             
             logger.info(f"New user registered: {username} at {get_current_time()}")
+            request.session.clear()
             return response
             
-        request.session.clear()
-        return templates.TemplateResponse("login_register.html", {"request": request, "error": "Invalid verification code.","open_signup": True})
+            
+        return templates.TemplateResponse("verify.html", {"request": request, "error": "Invalid verification code."})
     
     else:
         password_verification_code = request.session.get("password_verification_code")
@@ -261,7 +263,8 @@ async def reset_password_confirmed(request: Request,password:str=Form(...),confi
         return templates.TemplateResponse("reset_password_confirmed.html", {"request": request,"error": "Şifreler Uyuşmuyor"})
     
     
-
+    
+    
 # Logout işlemi
 @app.post("/logout")
 async def logout(request: Request):
